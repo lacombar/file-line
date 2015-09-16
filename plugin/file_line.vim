@@ -10,10 +10,6 @@ let g:loaded_file_line = 1
 let s:regexpressions = [ '\([^(]\{-1,}\)(\%(\(\d\+\)\%(:\(\d*\):\?\)\?\))', '\(.\{-1,}\):\%(\(\d\+\)\%(:\(\d*\):\?\)\?\)\?' ]
 
 function! s:reopenAndGotoLine(file_name, line_num, col_num)
-	if !filereadable(a:file_name)
-		return
-	endif
-
 	let l:bufn = bufnr("%")
 
 	exec "keepalt edit " . fnameescape(a:file_name)
@@ -25,10 +21,15 @@ function! s:reopenAndGotoLine(file_name, line_num, col_num)
 	exec "normal! zz"
 
 	exec "bwipeout " l:bufn
-	exec "filetype detect"
+	"exec "filetype detect"
 endfunction
 
-function! s:gotoline()
+function! s:FileLineCapture()
+	if exists('b:FileLineCapture_guard')
+		return
+	endif
+	let b:FileLineCapture_guard = 1
+
 	let file = bufname("%")
 
 	" :e command calls BufRead even though the file is a new one.
@@ -43,39 +44,22 @@ function! s:gotoline()
 	for regexp in s:regexpressions
 		let l:names =  matchlist(file, regexp)
 
-		if ! empty(l:names)
-			let file_name = l:names[1]
-			let line_num  = l:names[2] == ''? '0' : l:names[2]
-			let  col_num  = l:names[3] == ''? '0' : l:names[3]
-			call s:reopenAndGotoLine(file_name, line_num, col_num)
-			return file_name
+		if empty(l:names)
+			continue
 		endif
+
+		let file_name = l:names[1]
+		let line_num  = l:names[2] == ''? '0' : l:names[2]
+		let col_num   = l:names[3] == ''? '0' : l:names[3]
+
+		if !filereadable(file_name)
+			continue
+		endif
+
+		call s:reopenAndGotoLine(file_name, line_num, col_num)
 	endfor
 endfunction
 
-" Handle entry in the argument list.
-" This is called via `:argdo` when entering Vim.
-function! s:handle_arg()
-	let argname = expand('%')
-	let fname = s:gotoline()
-	if fname != argname
-		let argidx = argidx()
-		exec (argidx+1).'argdelete'
-		exec (argidx)'argadd' fname
-	endif
-endfunction
-
-function! s:startup()
-	autocmd! BufNewFile * nested call s:gotoline()
-	autocmd! BufRead * nested call s:gotoline()
-
-	if argc() > 0
-		let argidx=argidx()
-		argdo call s:handle_arg()
-		exec (argidx+1).'argument'
-		" Manually call Syntax autocommands, ignored by `:argdo`.
-		doautocmd Syntax
-	endif
-endfunction
-
-autocmd VimEnter * call s:startup()
+" XXX al - this should really be BufNewFile, but bufname("%") seems to be broken
+" when a new buffer is created in the VimEnter hook.
+autocmd BufEnter * call s:FileLineCapture()
